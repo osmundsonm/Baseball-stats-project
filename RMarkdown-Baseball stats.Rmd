@@ -1,0 +1,432 @@
+---
+title: "Baseball project"
+author: "Mari Osmundson"
+date: "12/9/2019"
+output: word_document
+---
+
+Main file: game_log. This file contains data on baseball games played from 1871 to 2016.
+  Definitions:
+    putouts: the number of times a defensive player got an offensive player out.
+    def_pos: Stands for defensive position. Indicates which defense position the player takes.
+      Position list follows:
+        1. Pitcher
+        2. Catcher
+        3. First base
+        4. Second base
+        5. Third base
+        6. Shortstop
+        7. Left field
+        8. Center field
+        9. Right field
+    The player's number does not necessarily correspond to their defensive position.
+Helper files: 
+  1) person_codes: contains the IDs, names, and start date for players, coaches, and umpires referenced in the game_log. Primary key is id. Various correlations in the game_log: _umpire_id, _manager_id, _player_id; _pitcher_name, _manager_name, _umpire_name.
+  2) park_codes: Contains name, location, league, and usage dates. Primary key is park_id, which corresponds to park_id in the game_log file.
+  3) team_codes: Lists the team information, such as league and location. Primary key is team_id, which is contained in game_log/v_name and game_log/h_name. Following is a guide to the league abbreviations.
+      
+      AA = American Association (1882-1891)
+      AL = American League (est. 1901)
+      FL = Federal League (1914-1915)
+      NL = National League (est. 1876)
+      PL = Player's League (1890)
+      UA = Union Association (1884)
+
+      
+      
+I imported game_log and its helper files, then created a database called bb.db using SQLite. bb.db has game_log, person_codes, park_codes, and team_codes as its four tables.
+
+```{r eval=FALSE}
+bb.db <- dbConnect(SQLite(), "bb.db")
+```
+
+```{r eval=FALSE}
+dbWriteTable(bb.db, "person_codes", person_codes, header = TRUE)
+dbWriteTable(bb.db, "park_codes", park_codes, header = TRUE)
+dbWriteTable(bb.db, "team_codes", team_codes, header = TRUE)
+dbWriteTable(bb.db, "game_log", game_log, header = TRUE)
+dbWriteTable(bb.db, "appearance_type1", appearance_type1, header = TRUE)
+```
+
+I added the game_id column to game_log.
+```{r eval=FALSE}
+query1 <- "ALTER TABLE game_log
+ADD COLUMN game_id TEXT"
+dbExecute(bb.db, query1)
+
+dbExecute(bb.db, "UPDATE game_log
+SET game_id = h_name || date || number_of_game
+WHERE game_id IS NULL")
+```
+
+```{r echo=FALSE, eval=FALSE}
+query <-"SELECT game_id, h_name, date, number_of_game FROM game_log
+LIMIT 5"
+result <- dbGetQuery(bb.db, query)
+```
+
+After studying the four files, I noticed the following:
+game_log: 
+  v_league and h_league have no entries and are irrelevant since this data is contained in team_codes.
+  The player, coach, umpire, manager names are also contained in the person_codes file and do not need to be in the game_log file. They are attributes of the respective IDs of each person, not of the game they participated in.
+  The player positions could be stacked, so that one row consists of a player's defensive and offensive positions.
+  
+  
+I began creating different tables based on the schema I designed in dbdesigner.net, beginning with the person table.
+```{r eval=FALSE}
+create_table1 <- "CREATE TABLE person (
+  id TEXT PRIMARY KEY,
+  last_name TEXT,
+  first_name TEXT
+)"
+dbExecute(bb.db, create_table1)
+
+add_columns_table1 <-
+"INSERT INTO person
+SELECT id, last, first FROM person_codes"
+dbExecute(bb.db, add_columns_table1)
+
+query3 <- "SELECT * FROM person
+LIMIT 5"
+result3 <- dbGetQuery(bb.db, query3)
+```
+
+Added league table.
+```{r eval=FALSE}
+create_league_table <- "CREATE TABLE league (
+  league_id TEXT PRIMARY KEY,
+  league_name TEXT
+)"
+dbExecute(bb.db, create_league_table)
+
+add_col_league <- "INSERT INTO league
+VALUES ('AA', 'American Association'),
+('AL', 'American League'),
+('FL', 'Federal League'),
+('NL', 'National League'),
+('PL', 'Players League'),
+('UA', 'Union Association')";
+dbExecute(bb.db, add_col_league)
+
+query4 <- "SELECT * FROM league"
+result4 <- dbGetQuery(bb.db, query4)
+```
+
+Added appearance_type table.
+```{r eval=FALSE}
+create_app_type_table <- "CREATE TABLE appearance_type (
+  appearance_type_id TEXT PRIMARY KEY,
+  name TEXT,
+  category TEXT
+)"
+dbExecute(bb.db, create_app_type_table)
+
+add_app_columns <- "INSERT INTO appearance_type
+SELECT * FROM appearance_type1";
+dbExecute(bb.db, add_app_columns)
+
+query5 <- "SELECT * FROM appearance_type
+LIMIT 5"
+result5 <- dbGetQuery(bb.db, query5)
+```
+
+Added team_info table.
+```{r eval=FALSE}
+create_team_info <- "CREATE TABLE team_info (
+  team_id TEXT PRIMARY KEY,
+  league_id TEXT,
+  city TEXT,
+  nickname TEXT,
+  franch_id TEXT,
+  FOREIGN KEY (league_id) REFERENCES league(league_id)
+)";
+dbExecute(bb.db, create_team_info)
+
+add_team_cols <- "INSERT OR IGNORE INTO team_info
+SELECT team_id, league, city, nickname, franch_id FROM team_codes";
+dbExecute(bb.db, add_team_cols)
+
+query7 <- "SELECT * from team_info
+LIMIT 5"
+result7 <- dbGetQuery(bb.db, query7)
+```
+
+Added game table.
+```{r eval=FALSE}
+create_game_tbl <- "CREATE TABLE game (
+  game_id TEXT PRIMARY KEY,
+  date TEXT,
+  number_of_game INTEGER,
+  day_of_week TEXT,
+  park_id TEXT,
+  attendance INTEGER,
+  length_minutes INTEGER,
+  completion TEXT,
+  forfeit TEXT,
+  protest TEXT,
+  additional_info TEXT,
+  acquisition_info TEXT,
+  FOREIGN KEY (park_id) REFERENCES park_codes(park_id)
+)";
+dbExecute(bb.db, create_game_tbl)
+
+add_game_cols <- "INSERT INTO game
+SELECT 
+  game_id, 
+  date,
+  number_of_game,
+  day_of_week,
+  park_id,
+  attendance,
+  length_minutes,
+  completion,
+  forefeit,
+  protest,
+  additional_info,
+  acquisition_info 
+FROM game_log";
+dbExecute(bb.db, add_game_cols)
+
+query8 <- "SELECT game_id, date, number_of_game FROM game
+LIMIT 5"
+result8 <- dbGetQuery(bb.db, query8)
+```
+
+Added team_stats table.
+```{r eval=FALSE}
+create_team_stats <- "CREATE TABLE team_stats (
+  team_id TEXT,
+  game_id TEXT,
+  home BOOLEAN,
+  score INTEGER,
+  line_score TEXT,
+  at_bats INTEGER,
+  hits INTEGER,
+  doubles INTEGER,
+  triples INTEGER,
+  homeruns INTEGER,
+  rbi INTEGER,
+  sacrifice_hits INTEGER,
+  sacrifice_flies INTEGER,
+  hit_by_pitch INTEGER,
+  walks INTEGER,
+  intentional_walks INTEGER,
+  strikeouts INTEGER,
+  stolen_bases INTEGER,
+  pitchers_used INTEGER,
+  individual_earned_runs INTEGER,
+  team_earned_runs INTEGER,
+  putouts INTEGER,
+  assists INTEGER,
+  errors INTEGER,
+  double_plays INTEGER,
+  triple_plays INTEGER,
+  PRIMARY KEY (team_id, game_id),
+  FOREIGN KEY (team_id) REFERENCES team(team_id),
+  FOREIGN KEY (game_id) REFERENCES game(game_id)
+)";
+dbExecute(bb.db, create_team_stats)
+
+create_ts_cols <- "INSERT INTO team_stats
+SELECT
+  h_name,
+  game_id,
+  1 AS home,
+  h_score,
+  h_line_score,
+  h_at_bats,
+  h_hits,
+  h_doubles,
+  h_triples,
+  h_homeruns,
+  h_rbi,
+  h_sacrifice_hits,
+  h_sacrifice_flies,
+  h_hit_by_pitch,
+  h_walks,
+  h_intentional_walks,
+  h_strikeouts,
+  h_stolen_bases,
+  h_pitchers_used,
+  h_individual_earned_runs,
+  h_team_earned_runs,
+  h_putouts,
+  h_assists,
+  h_errors,
+  h_double_plays,
+  h_triple_plays
+FROM game_log
+
+UNION
+
+SELECT
+  v_name,
+  game_id,
+  0 AS home,
+  v_score,
+  v_line_score,
+  v_at_bats,
+  v_hits,
+  v_doubles,
+  v_triples,
+  v_homeruns,
+  v_rbi,
+  v_sacrifice_hits,
+  v_sacrifice_flies,
+  v_hit_by_pitch,
+  v_walks,
+  v_intentional_walks,
+  v_strikeouts,
+  v_stolen_bases,
+  v_pitchers_used,
+  v_individual_earned_runs,
+  v_team_earned_runs,
+  v_putouts,
+  v_assists,
+  v_errors,
+  v_double_plays,
+  v_triple_plays
+FROM game_log";
+dbExecute(bb.db, create_ts_cols)
+
+query9 <- "SELECT * FROM team_stats";
+result9 <- dbGetQuery(bb.db, query9)
+```
+
+Added person_appearance table.
+```{r eval=FALSE}
+create_pers_app <- "CREATE TABLE person_appearance (
+  appearance_id INTEGER PRIMARY KEY,
+  person_id TEXT,
+  team_id TEXT,
+  game_id TEXT,
+  appearance_type_id TEXT
+)";
+dbExecute(bb.db, create_pers_app)
+
+create_pers_app_t <- "INSERT INTO person_appearance (
+    game_id,
+    team_id,
+    person_id,
+    appearance_type_id
+)
+    SELECT
+        game_id,
+        NULL,
+        lf_umpire_id,
+        'ULF'
+    FROM game_log
+    WHERE lf_umpire_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        NULL,
+        rf_umpire_id,
+        'URF'
+    FROM game_log
+    WHERE rf_umpire_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        v_name,
+        v_manager_id,
+        'MM'
+    FROM game_log
+    WHERE v_manager_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        h_name,
+        h_manager_id,
+        'MM'
+    FROM game_log
+    WHERE h_manager_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        CASE
+            WHEN h_score > v_score THEN h_name
+            ELSE v_name
+            END,
+        winning_pitcher_id,
+        'AWP'
+    FROM game_log
+    WHERE winning_pitcher_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        CASE
+            WHEN h_score < v_score THEN h_name
+            ELSE v_name
+            END,
+        losing_pitcher_id,
+        'ALP'
+    FROM game_log
+    WHERE losing_pitcher_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        CASE
+            WHEN h_score > v_score THEN h_name
+            ELSE v_name
+            END,
+        saving_pitcher_id,
+        'ASP'
+    FROM game_log
+    WHERE saving_pitcher_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        CASE
+            WHEN h_score > v_score THEN h_name
+            ELSE v_name
+            END,
+        winning_rbi_batter_id,
+        'AWB'
+    FROM game_log
+    WHERE winning_rbi_batter_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        v_name,
+        v_starting_pitcher_id,
+        'PSP'
+    FROM game_log
+    WHERE v_starting_pitcher_id IS NOT NULL
+
+UNION
+
+    SELECT
+        game_id,
+        h_name,
+        h_starting_pitcher_id,
+        'PSP'
+    FROM game_log
+    WHERE h_starting_pitcher_id IS NOT NULL";
+dbExecute(bb.db, create_pers_app_t)
+```
+
+```{r}
+dbDisconnect(bb.db)
+```
+
+
+
+
+
